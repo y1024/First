@@ -1,0 +1,4 @@
+.venv/
+.deps_installed
+__pycache__/
+*.py[cod]

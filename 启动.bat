@@ -2,47 +2,25 @@
 setlocal enabledelayedexpansion
 title Launcher
 
-:: Skip dependency check if already installed before
-if exist ".deps_installed" goto :launch
-
-:: Check if requirements.txt exists
-if not exist "requirements.txt" (
+where uv >nul 2>nul
+if errorlevel 1 (
     echo.
-    echo  [WARNING] requirements.txt not found!
+    echo  [ERROR] uv not found. Install uv first:
+    echo  pip install uv
     echo.
-    set /p "choice=  Skip dependency install and launch directly? [Y/N]: "
-    echo.
-    if /i "!choice!"=="Y" goto :launch
-    echo  Cancelled.
-    timeout /t 2 >nul
     exit /b 1
 )
 
-:: requirements.txt found, ask to install
 echo.
-echo  [OK] requirements.txt found.
+echo  Syncing project environment with uv...
 echo.
-set /p "install=  Install dependencies? [Y/N]: "
-echo.
-if /i "!install!"=="Y" (
-    echo  Installing via Tsinghua mirror, please wait...
+uv sync -i https://pypi.tuna.tsinghua.edu.cn/simple
+if errorlevel 1 (
     echo.
-    pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-    if errorlevel 1 (
-        echo.
-        echo  [ERROR] Installation failed! Check your network or pip config.
-        pause
-        exit /b 1
-    )
-    echo.
-    echo  [OK] Done! Will skip this step on next launch.
-    echo. > .deps_installed
-    echo.
-) else (
-    echo. > .deps_installed
+    echo  [ERROR] uv sync failed! Check your network or uv config.
+    pause
+    exit /b 1
 )
 
-:: Launch gui.py without command window
-:launch
-start "" pythonw gui.py
+start "" ".venv\Scripts\pythonw.exe" gui.py
 exit /b 0

@@ -57,6 +57,7 @@ _MENU = [
     ("control",   "◉", "控制台"),
     ("navigator", "⬡", "路由导航"),
     ("hook",      "◈", "Hook"),
+    ("targets",   "◎", "服务目标"),
     ("cloud",     "☁", "云扫描"),
     ("extract",   "◆", "敏感信息提取"),
     ("vconsole",  "◇", "调试开关"),
@@ -675,6 +676,7 @@ class App(QMainWindow):
         self._sts_q = queue.Queue()
         self._rte_q = queue.Queue()
         self._cld_q = queue.Queue()
+        self._tgt_q = queue.Queue()
         self._nav_route_idx = -1
 
         self._sb_items = {}
@@ -862,6 +864,7 @@ class App(QMainWindow):
         self._build_control()
         self._build_navigator()
         self._build_hook()
+        self._build_targets()
         self._build_cloud()
         self._build_extract()
         self._build_vconsole()
@@ -1259,6 +1262,155 @@ class App(QMainWindow):
         if self._global_hook_scripts:
             self._hook_auto_inject_globals()
             self._log_add("info", "[Hook] 自动注入全局脚本")
+
+    # ── 页面目标 ──
+
+    def _build_targets(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(24, 12, 24, 16)
+        lay.setSpacing(10)
+
+        tip_row = QHBoxLayout()
+        tip = QLabel("列出当前调试会话可见的微信内置浏览器 / 小程序 / webview 服务")
+        tip.setProperty("class", "muted")
+        tip_row.addWidget(tip)
+        tip_row.addStretch()
+        self._btn_tgt_refresh = _make_btn("刷新目标", self._do_targets_refresh)
+        self._btn_tgt_refresh.setEnabled(False)
+        tip_row.addWidget(self._btn_tgt_refresh)
+        self._btn_tgt_attach = _make_btn("附加到选中目标", self._do_targets_attach)
+        self._btn_tgt_attach.setEnabled(False)
+        tip_row.addWidget(self._btn_tgt_attach)
+        self._btn_tgt_copy = _make_btn("复制 TargetId", self._do_targets_copy)
+        self._btn_tgt_copy.setEnabled(False)
+        tip_row.addWidget(self._btn_tgt_copy)
+        lay.addLayout(tip_row)
+
+        tc = _make_card()
+        tc_lay = QVBoxLayout(tc)
+        tc_lay.setContentsMargins(0, 0, 0, 0)
+        self._targets_tree = QTreeWidget()
+        self._targets_tree.setRootIsDecorated(False)
+        self._targets_tree.setIndentation(0)
+        self._targets_tree.setHeaderLabels(["类型", "标题", "URL", "TargetId"])
+        self._targets_tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._targets_tree.itemSelectionChanged.connect(self._targets_on_select)
+        self._targets_tree.itemDoubleClicked.connect(lambda *_: self._do_targets_attach())
+        hdr = self._targets_tree.header()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        tc_lay.addWidget(self._targets_tree)
+        lay.addWidget(tc, 1)
+
+        self._targets_status_lbl = QLabel("状态: 未连接小程序")
+        self._targets_status_lbl.setProperty("class", "muted")
+        lay.addWidget(self._targets_status_lbl)
+
+        self._stack.addWidget(page)
+        self._page_map["targets"] = self._stack.count() - 1
+
+    def _targets_btns(self, on):
+        if not hasattr(self, "_btn_tgt_refresh"):
+            return
+        self._btn_tgt_refresh.setEnabled(on)
+        has_sel = bool(on and self._targets_tree.selectedItems())
+        self._btn_tgt_attach.setEnabled(has_sel)
+        self._btn_tgt_copy.setEnabled(has_sel)
+
+    def _targets_on_select(self):
+        self._targets_btns(bool(self._engine and self._miniapp_connected))
+
+    def _selected_target(self):
+        items = self._targets_tree.selectedItems()
+        if not items:
+            self._log_add("error", "[页面目标] 请先选择一个目标")
+            return None
+        return items[0].data(0, Qt.UserRole) or {}
+
+    def _do_targets_refresh(self):
+        if not self._engine or not self._loop or not self._loop.is_running():
+            self._log_add("error", "[页面目标] 请先启动调试并连接小程序")
+            return
+        self._btn_tgt_refresh.setEnabled(False)
+        self._targets_status_lbl.setText("状态: 正在刷新...")
+        asyncio.run_coroutine_threadsafe(self._atargets_refresh(), self._loop)
+
+    async def _atargets_refresh(self):
+        try:
+            resp = await self._engine.send_cdp_command("Target.getTargets", timeout=8.0)
+            infos = resp.get("result", {}).get("targetInfos", [])
+            self._tgt_q.put(("targets", infos))
+        except Exception as e:
+            self._tgt_q.put(("error", f"刷新失败: {e}"))
+
+    def _do_targets_attach(self):
+        target = self._selected_target()
+        if not target or not self._engine or not self._loop or not self._loop.is_running():
+            return
+        target_id = target.get("targetId", "")
+        if not target_id:
+            self._log_add("error", "[页面目标] 选中项没有 TargetId")
+            return
+        self._btn_tgt_attach.setEnabled(False)
+        self._targets_status_lbl.setText("状态: 正在附加...")
+        asyncio.run_coroutine_threadsafe(self._atargets_attach(target_id), self._loop)
+
+    async def _atargets_attach(self, target_id):
+        try:
+            resp = await self._engine.send_cdp_command(
+                "Target.attachToTarget", {"targetId": target_id}, timeout=8.0)
+            self._tgt_q.put(("attached", target_id, resp))
+        except Exception as e:
+            self._tgt_q.put(("error", f"附加失败: {e}"))
+
+    def _do_targets_copy(self):
+        target = self._selected_target()
+        if not target:
+            return
+        target_id = target.get("targetId", "")
+        if target_id:
+            QApplication.clipboard().setText(target_id)
+            self._targets_status_lbl.setText("状态: TargetId 已复制")
+            self._log_add("info", f"[页面目标] 已复制 TargetId: {target_id}")
+
+    def _handle_tgt(self, item):
+        kind = item[0]
+        c = _TH[self._tn]
+        if kind == "targets":
+            targets = item[1]
+            self._targets_tree.clear()
+            for target in targets:
+                target_id = target.get("targetId", "")
+                title = target.get("title", "") or "--"
+                url = target.get("url", "") or "--"
+                typ = target.get("type", "") or "--"
+                row = QTreeWidgetItem([typ, title, url, target_id])
+                row.setData(0, Qt.UserRole, target)
+                if target.get("attached"):
+                    for col in range(4):
+                        row.setForeground(col, QColor(c["success"]))
+                self._targets_tree.addTopLevelItem(row)
+            self._targets_status_lbl.setText(f"状态: 发现 {len(targets)} 个目标")
+            self._targets_status_lbl.setStyleSheet(f"color: {c['success']};")
+            self._log_add("info", f"[页面目标] 发现 {len(targets)} 个可选目标")
+            self._targets_btns(bool(self._miniapp_connected))
+        elif kind == "attached":
+            _, target_id, resp = item
+            session_id = resp.get("result", {}).get("sessionId", "")
+            suffix = f", sessionId={session_id}" if session_id else ""
+            self._targets_status_lbl.setText(f"状态: 已附加 {target_id}{suffix}")
+            self._targets_status_lbl.setStyleSheet(f"color: {c['success']};")
+            self._log_add("info", f"[页面目标] 已附加到目标: {target_id}{suffix}")
+            self._targets_btns(bool(self._miniapp_connected))
+        elif kind == "error":
+            msg = item[1]
+            self._targets_status_lbl.setText(f"状态: {msg}")
+            self._targets_status_lbl.setStyleSheet(f"color: {c['error']};")
+            self._log_add("error", f"[页面目标] {msg}")
+            self._targets_btns(bool(self._miniapp_connected))
 
     # ── 云扫描 ──
 
@@ -2963,6 +3115,7 @@ class App(QMainWindow):
         self._btn_stop.setEnabled(False)
         self._btn_fetch.setEnabled(False)
         self._nav_btns(False)
+        self._targets_btns(False)
         if self._loop and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._loop.stop)
 
@@ -2985,10 +3138,13 @@ class App(QMainWindow):
         self._btn_stop.setEnabled(False)
         self._btn_fetch.setEnabled(False)
         self._nav_btns(False)
+        self._targets_btns(False)
         self._btn_autostop.setEnabled(False)
         self._redirect_guard_on = False
         self._guard_switch.setChecked(False)
         self._guard_label.setText("防跳转: 关闭")
+        self._targets_tree.clear()
+        self._targets_status_lbl.setText("状态: 未连接小程序")
         self._devtools_lbl.setText("")
         self._devtools_copy_hint.setText("")
         # 引擎停止，清除侧栏和运行状态卡片的小程序信息
@@ -3064,6 +3220,8 @@ class App(QMainWindow):
         if not self._miniapp_connected:
             return
         self._nav_btns(True)
+        self._targets_btns(True)
+        self._targets_status_lbl.setText("状态: 可刷新目标")
         self._btn_vc_enable.setEnabled(True)
         self._btn_vc_disable.setEnabled(True)
         self._vc_status_lbl.setText("状态: 就绪")
@@ -3624,6 +3782,12 @@ class App(QMainWindow):
             self._handle_cld(item)
         for _ in range(50):
             try:
+                item = self._tgt_q.get_nowait()
+            except queue.Empty:
+                break
+            self._handle_tgt(item)
+        for _ in range(50):
+            try:
                 item = self._ext_q.get_nowait()
             except queue.Empty:
                 break
@@ -3641,6 +3805,8 @@ class App(QMainWindow):
         if not is_connected and self._miniapp_connected:
             if not self._all_routes:
                 self._nav_btns(False)
+            self._targets_btns(False)
+            self._targets_status_lbl.setText("状态: 未连接小程序")
             self._btn_vc_enable.setEnabled(False)
             self._btn_vc_disable.setEnabled(False)
             self._vc_status_lbl.setText("状态: 未连接小程序")
