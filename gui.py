@@ -51,8 +51,13 @@ _L = dict(
     success="#16a34a",  error="#dc2626",    warning="#ca8a04",
 )
 _TH = {"dark": _D, "light": _L}
-_FN = "Microsoft YaHei UI"
-_FM = "Consolas"
+# Platform-aware default fonts (overridable via gui_config.json: font_ui / font_mono)
+if sys.platform == "darwin":
+    _FN = "PingFang SC"
+    _FM = "Menlo"
+else:
+    _FN = "Microsoft YaHei UI"
+    _FM = "Consolas"
 _MENU = [
     ("control",   "◉", "控制台"),
     ("navigator", "⬡", "路由导航"),
@@ -89,6 +94,49 @@ def _save_cfg(data):
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
+
+
+# Apply font overrides from config.
+# Editable fields in gui_config.json:
+#   font_ui        — UI font family name
+#   font_ui_size   — UI base font size (int, default 9)
+#   font_mono      — monospace font family name
+#   font_mono_size — monospace font size (int, default 9)
+_early_cfg = _load_cfg()
+if _early_cfg.get("font_ui"):
+    _FN = _early_cfg["font_ui"]
+if _early_cfg.get("font_mono"):
+    _FM = _early_cfg["font_mono"]
+_FN_SIZE: int = int(_early_cfg.get("font_ui_size", 9))
+_FM_SIZE: int = int(_early_cfg.get("font_mono_size", 9))
+
+# Write defaults back so the fields appear in gui_config.json on first launch
+_init_cfg = dict(_early_cfg)
+_cfg_dirty = False
+for _k, _v in [("font_ui", _FN), ("font_ui_size", _FN_SIZE),
+                ("font_mono", _FM), ("font_mono_size", _FM_SIZE)]:
+    if _k not in _init_cfg:
+        _init_cfg[_k] = _v
+        _cfg_dirty = True
+if _cfg_dirty:
+    _save_cfg(_init_cfg)
+del _init_cfg, _cfg_dirty
+
+
+def _qfn(offset: int = 0, weight=None):
+    """Return QFont for UI font with size relative to _FN_SIZE."""
+    f = QFont(_FN, max(6, _FN_SIZE + offset))
+    if weight is not None:
+        f.setWeight(weight)
+    return f
+
+
+def _qfm(offset: int = 0, weight=None):
+    """Return QFont for mono font with size relative to _FM_SIZE."""
+    f = QFont(_FM, max(6, _FM_SIZE + offset))
+    if weight is not None:
+        f.setWeight(weight)
+    return f
 
 
 # ══════════════════════════════════════════
@@ -615,7 +663,7 @@ def _make_label(text, bold=False, muted=False, mono=False):
     elif muted:
         l.setProperty("class", "muted")
     if mono:
-        l.setFont(QFont(_FM, 10))
+        l.setFont(_qfm(1))
     return l
 
 
@@ -647,8 +695,8 @@ class App(QMainWindow):
         _ico = os.path.join(_BASE_DIR, "icon.png")
         if os.path.exists(_ico):
             self.setWindowIcon(QIcon(_ico))
-        self.resize(960, 620)
-        self.setMinimumSize(780, 500)
+        self.resize(1060, 660)
+        self.setMinimumSize(900, 540)
 
         self._cfg = _load_cfg()
         self._tn = self._cfg.get("theme", "dark")
@@ -763,10 +811,10 @@ class App(QMainWindow):
             row_lay.setSpacing(6)
             ic = QLabel(icon)
             ic.setProperty("class", "sb_icon")
-            ic.setFont(QFont(_FN, 13))
+            ic.setFont(_qfn(4))
             nm = QLabel(name)
             nm.setProperty("class", "sb_name")
-            nm.setFont(QFont(_FN, 10))
+            nm.setFont(_qfn(1))
             row_lay.addWidget(ic)
             row_lay.addWidget(nm, 1)
             sb_nav_lay.addWidget(row)
@@ -785,13 +833,13 @@ class App(QMainWindow):
         sb_app_card_lay.setSpacing(1)
         self._sb_app_name = QLabel("未连接")
         self._sb_app_name.setAlignment(Qt.AlignCenter)
-        self._sb_app_name.setFont(QFont(_FN, 8))
+        self._sb_app_name.setFont(_qfn(-1))
         self._sb_app_name.setStyleSheet("color: #5c5c6c;")
         self._sb_app_name.setWordWrap(True)
         sb_app_card_lay.addWidget(self._sb_app_name)
         self._sb_app_id = QLabel("")
         self._sb_app_id.setAlignment(Qt.AlignCenter)
-        self._sb_app_id.setFont(QFont(_FN, 8))
+        self._sb_app_id.setFont(_qfn(-1))
         self._sb_app_id.setStyleSheet("color: #9e9ea8;")
         self._sb_app_id.setVisible(False)
         self._sb_app_id.setWordWrap(True)
@@ -803,28 +851,28 @@ class App(QMainWindow):
         self._sb_theme.setObjectName("sb_theme")
         self._sb_theme.setAlignment(Qt.AlignCenter)
         self._sb_theme.setCursor(Qt.PointingHandCursor)
-        self._sb_theme.setFont(QFont(_FN, 9))
+        self._sb_theme.setFont(_qfn())
         self._sb_theme.mousePressEvent = lambda e: self._toggle_theme()
         sb_lay.addWidget(self._sb_theme)
 
         sb_author = QLabel("by vs-olitus")
         sb_author.setObjectName("sb_theme")
         sb_author.setAlignment(Qt.AlignCenter)
-        sb_author.setFont(QFont(_FN, 8))
+        sb_author.setFont(_qfn(-1))
         sb_lay.addWidget(sb_author)
         sb_gh = QLabel("github.com/Spade-sec/First")
         sb_gh.setObjectName("sb_theme")
         sb_gh.setAlignment(Qt.AlignCenter)
-        sb_gh.setFont(QFont(_FN, 7))
+        sb_gh.setFont(_qfn(-2))
         sb_gh.setCursor(Qt.PointingHandCursor)
         sb_gh.mousePressEvent = lambda e: (
             QDesktopServices.openUrl(QUrl("https://github.com/Spade-sec/First")),
             self._log_add("info", "[gui] 已打开 GitHub 页面"))
         sb_lay.addWidget(sb_gh)
-        sb_ver = QLabel("v1.0.7")
+        sb_ver = QLabel("v1.0.8")
         sb_ver.setObjectName("sb_theme")
         sb_ver.setAlignment(Qt.AlignCenter)
-        sb_ver.setFont(QFont(_FN, 7))
+        sb_ver.setFont(_qfn(-2))
         sb_lay.addWidget(sb_ver)
         sb_lay.addSpacing(12)
         self._update_theme_label()
@@ -900,10 +948,10 @@ class App(QMainWindow):
         # Action row
         ar = QHBoxLayout()
         self._btn_start = _make_btn("▶  启动调试", self._do_start)
-        self._btn_start.setFont(QFont(_FN, 10, QFont.Bold))
+        self._btn_start.setFont(_qfn(1, QFont.Bold))
         ar.addWidget(self._btn_start)
         self._btn_stop = _make_btn("■  停止", self._do_stop)
-        self._btn_stop.setFont(QFont(_FN, 10, QFont.Bold))
+        self._btn_stop.setFont(_qfn(1, QFont.Bold))
         self._btn_stop.setEnabled(False)
         ar.addWidget(self._btn_stop)
         ar.addStretch()
@@ -913,13 +961,13 @@ class App(QMainWindow):
         dt_row = QHBoxLayout()
         self._devtools_lbl = QLabel("")
         self._devtools_lbl.setProperty("class", "accent")
-        self._devtools_lbl.setFont(QFont(_FM, 8))
+        self._devtools_lbl.setFont(_qfm(-1))
         self._devtools_lbl.setCursor(Qt.PointingHandCursor)
         self._devtools_lbl.mousePressEvent = lambda e: self._copy_devtools_url()
         dt_row.addWidget(self._devtools_lbl)
         self._devtools_copy_hint = QLabel("")
         self._devtools_copy_hint.setProperty("class", "muted")
-        self._devtools_copy_hint.setFont(QFont(_FN, 8))
+        self._devtools_copy_hint.setFont(_qfn(-1))
         dt_row.addWidget(self._devtools_copy_hint)
         dt_row.addStretch()
         lay.addLayout(dt_row)
@@ -995,6 +1043,7 @@ class App(QMainWindow):
         tc_lay = QVBoxLayout(tc)
         tc_lay.setContentsMargins(0, 0, 0, 0)
         self._tree = QTreeWidget()
+        self._tree.setFont(_qfn())
         self._tree.setHeaderHidden(True)
         self._tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -1141,13 +1190,13 @@ class App(QMainWindow):
 
             icon_lbl = QLabel("JS")
             icon_lbl.setProperty("class", "js_badge")
-            icon_lbl.setFont(QFont(_FM, 8, QFont.Bold))
+            icon_lbl.setFont(_qfm(-1, QFont.Bold))
             icon_lbl.setFixedWidth(30)
             icon_lbl.setAlignment(Qt.AlignCenter)
             row_lay.addWidget(icon_lbl)
 
             name_lbl = QLabel(fn)
-            name_lbl.setFont(QFont(_FN, 10))
+            name_lbl.setFont(_qfn(1))
             row_lay.addWidget(name_lbl, 1)
 
             is_global = fn in self._global_hook_scripts
@@ -1291,6 +1340,8 @@ class App(QMainWindow):
         tc_lay = QVBoxLayout(tc)
         tc_lay.setContentsMargins(0, 0, 0, 0)
         self._targets_tree = QTreeWidget()
+        self._targets_tree.setFont(_qfn())
+        self._targets_tree.header().setFont(_qfn())
         self._targets_tree.setRootIsDecorated(False)
         self._targets_tree.setIndentation(0)
         self._targets_tree.setHeaderLabels(["类型", "标题", "URL", "TargetId"])
@@ -1299,9 +1350,12 @@ class App(QMainWindow):
         self._targets_tree.itemDoubleClicked.connect(lambda *_: self._do_targets_attach())
         hdr = self._targets_tree.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.Interactive)
         hdr.setSectionResizeMode(2, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.Interactive)
+        hdr.setMinimumSectionSize(50)
+        self._targets_tree.setColumnWidth(1, 200)
+        self._targets_tree.setColumnWidth(3, 290)
         tc_lay.addWidget(self._targets_tree)
         lay.addWidget(tc, 1)
 
@@ -1451,6 +1505,8 @@ class App(QMainWindow):
         tc_lay.addLayout(title_row)
 
         self._cloud_tree = QTreeWidget()
+        self._cloud_tree.setFont(_qfn())
+        self._cloud_tree.header().setFont(_qfn())
         self._cloud_tree.setRootIsDecorated(False)
         self._cloud_tree.setIndentation(0)
         self._cloud_tree.setHeaderLabels(["AppID", "类型", "名称", "参数", "状态", "时间"])
@@ -1490,7 +1546,7 @@ class App(QMainWindow):
         self._cloud_result = QTextEdit()
         self._cloud_result.setReadOnly(True)
         self._cloud_result.setFixedHeight(120)
-        self._cloud_result.setFont(QFont(_FM, 9))
+        self._cloud_result.setFont(_qfm())
         lay.addWidget(self._cloud_result)
 
         bot = QHBoxLayout()
@@ -1614,7 +1670,7 @@ class App(QMainWindow):
         # 日志区
         self._ext_logbox = QTextEdit()
         self._ext_logbox.setReadOnly(True)
-        self._ext_logbox.setFont(QFont(_FM, 9))
+        self._ext_logbox.setFont(_qfm())
         self._ext_logbox.setMaximumHeight(120)
         main_lay.addWidget(self._ext_logbox)
 
@@ -1683,6 +1739,8 @@ class App(QMainWindow):
         bc_lay.addWidget(_make_label("内置正则规则 (只读)", bold=True))
 
         self._ext_builtin_tree = QTreeWidget()
+        self._ext_builtin_tree.setFont(_qfn())
+        self._ext_builtin_tree.header().setFont(_qfn())
         self._ext_builtin_tree.setHeaderLabels(["分类", "正则/说明"])
         bh = self._ext_builtin_tree.header()
         bh.setStretchLastSection(True)
@@ -1915,7 +1973,7 @@ class App(QMainWindow):
 
             lbl_id = QLabel(appid)
             lbl_id.setFixedWidth(180)
-            lbl_id.setFont(QFont(_FM, 9))
+            lbl_id.setFont(_qfm())
             lbl_id.setStyleSheet(f"color: {c['text1']};")
             row_lay.addWidget(lbl_id)
 
@@ -1933,7 +1991,7 @@ class App(QMainWindow):
             app_name = self._ext_get_app_name(appid, pkgs, output_base) if is_decompiled else f"{len(pkgs)} pkg (未反编译)"
             lbl_name = QLabel(app_name)
             lbl_name.setMinimumWidth(100)
-            lbl_name.setFont(QFont(_FN, 9))
+            lbl_name.setFont(_qfn())
             lbl_name.setStyleSheet(f"color: {c['text2']};")
             row_lay.addWidget(lbl_name, 1)
 
@@ -1976,7 +2034,8 @@ class App(QMainWindow):
 
             self._ext_app_widgets[appid] = {
                 "row": row, "btn_dec": btn_dec, "btn_scan": btn_scan,
-                "btn_view": btn_view, "btn_del": btn_del, "lbl_name": lbl_name,
+                "btn_view": btn_view, "btn_del": btn_del,
+                "lbl_name": lbl_name, "lbl_id": lbl_id,
             }
 
             # 插入在最前面（最新的在上面）
@@ -2252,7 +2311,7 @@ class App(QMainWindow):
             title_row.addWidget(btn_fold)
 
             title_lbl = QLabel(f"{label} ({len(items)})")
-            title_lbl.setFont(QFont(_FN, 11, QFont.Weight.Bold))
+            title_lbl.setFont(_qfn(2, QFont.Weight.Bold))
             title_lbl.setStyleSheet(
                 f"color: {c['text1']}; border-left: 4px solid {accent}; padding-left: 8px;"
                 f"background: transparent;")
@@ -2278,7 +2337,7 @@ class App(QMainWindow):
             content_lay.setSpacing(0)
             if items:
                 content_lbl = QLabel()
-                content_lbl.setFont(QFont(_FM, 9))
+                content_lbl.setFont(_qfm())
                 content_lbl.setWordWrap(True)
                 content_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
                 content_lbl.setStyleSheet(
@@ -2471,11 +2530,11 @@ class App(QMainWindow):
             rl.setSpacing(6)
             lbl_n = QLabel(name)
             lbl_n.setFixedWidth(120)
-            lbl_n.setFont(QFont(_FM, 9))
+            lbl_n.setFont(_qfm())
             lbl_n.setStyleSheet(f"color: {c['text1']};")
             rl.addWidget(lbl_n)
             lbl_p = QLabel(pat if len(pat) < 60 else pat[:60] + "...")
-            lbl_p.setFont(QFont(_FM, 9))
+            lbl_p.setFont(_qfm())
             lbl_p.setStyleSheet(f"color: {c['text2']};")
             lbl_p.setToolTip(pat)
             lbl_p.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
@@ -2610,7 +2669,7 @@ class App(QMainWindow):
         input_lbl = QLabel("输入测试文本:")
         lay.addWidget(input_lbl)
         input_box = QTextEdit()
-        input_box.setFont(QFont(_FM, 9))
+        input_box.setFont(_qfm())
         input_box.setPlaceholderText("在此粘贴或输入要测试的文本...")
         lay.addWidget(input_box, 1)
 
@@ -2618,7 +2677,7 @@ class App(QMainWindow):
         lay.addWidget(result_lbl)
         result_box = QTextEdit()
         result_box.setReadOnly(True)
-        result_box.setFont(QFont(_FM, 9))
+        result_box.setFont(_qfm())
         lay.addWidget(result_box, 1)
 
         def do_test():
@@ -2746,7 +2805,7 @@ class App(QMainWindow):
         warn_lay.setContentsMargins(16, 12, 16, 12)
         warn_lay.setSpacing(6)
         warn_title = QLabel("⚠  风险提示")
-        warn_title.setFont(QFont(_FN, 11, QFont.Bold))
+        warn_title.setFont(_qfn(2, QFont.Bold))
         warn_title.setStyleSheet("color: #e6a23c;")
         warn_lay.addWidget(warn_title)
         warn_text = QLabel(
@@ -2789,11 +2848,11 @@ class App(QMainWindow):
 
         btn_row = QHBoxLayout()
         self._btn_vc_enable = _make_btn("▶  开启调试", self._do_vc_enable)
-        self._btn_vc_enable.setFont(QFont(_FN, 10, QFont.Bold))
+        self._btn_vc_enable.setFont(_qfn(1, QFont.Bold))
         self._btn_vc_enable.setEnabled(False)
         btn_row.addWidget(self._btn_vc_enable)
         self._btn_vc_disable = _make_btn("■  关闭调试", self._do_vc_disable)
-        self._btn_vc_disable.setFont(QFont(_FN, 10, QFont.Bold))
+        self._btn_vc_disable.setFont(_qfn(1, QFont.Bold))
         self._btn_vc_disable.setEnabled(False)
         btn_row.addWidget(self._btn_vc_disable)
         btn_row.addStretch()
@@ -2941,7 +3000,7 @@ class App(QMainWindow):
         lc_lay.setContentsMargins(0, 0, 0, 0)
         self._logbox = QTextEdit()
         self._logbox.setReadOnly(True)
-        self._logbox.setFont(QFont(_FM, 9))
+        self._logbox.setFont(_qfm())
         lc_lay.addWidget(self._logbox)
         lay.addWidget(lc, 1)
 
@@ -2983,9 +3042,36 @@ class App(QMainWindow):
         self._update_theme_label()
         self._update_toggle_colors()
         self._refresh_sb_app_card()
+        self._ext_restyle_rows()
         self._ext_refresh_custom_patterns()
         self._hl_sb()
         self._auto_save()
+
+    def _ext_restyle_rows(self):
+        """切换主题时更新应用列表行的内联样式。"""
+        c = _TH[self._tn]
+        row_ss = (
+            f"QFrame {{ background: {c['input']}; border-radius: 8px; }}"
+            f"QFrame QLabel {{ background: transparent; }}"
+        )
+        for appid, widgets in self._ext_app_widgets.items():
+            row = widgets.get("row")
+            if row:
+                row.setStyleSheet(row_ss)
+            lbl_id = widgets.get("lbl_id")
+            if lbl_id:
+                lbl_id.setStyleSheet(f"color: {c['text1']};")
+            lbl_name = widgets.get("lbl_name")
+            if lbl_name:
+                lbl_name.setStyleSheet(f"color: {c['text2']};")
+            # 反编译按钮颜色也跟主题走
+            btn_dec = widgets.get("btn_dec")
+            if btn_dec:
+                state = self._ext_app_states.get(appid, {})
+                if state.get("decompiled"):
+                    btn_dec.setStyleSheet(
+                        f"QPushButton {{ background: {c['success']}; color: #111; "
+                        f"border-radius: 6px; padding: 4px 8px; font-size: 9px; }}")
 
     def _update_theme_label(self):
         txt = "☀  浅色模式" if self._tn == "dark" else "☽  深色模式"
@@ -3016,6 +3102,10 @@ class App(QMainWindow):
             "auto_decompile": self._tog_auto_dec.isChecked(),
             "auto_scan": self._tog_auto_scan.isChecked(),
             "global_hook_scripts": list(self._global_hook_scripts),
+            "font_ui": _FN,
+            "font_ui_size": _FN_SIZE,
+            "font_mono": _FM,
+            "font_mono_size": _FM_SIZE,
         }
         _save_cfg(data)
 
@@ -4102,7 +4192,7 @@ if __name__ == "__main__":
             pass
 
     app = QApplication(sys.argv)
-    app.setFont(QFont(_FN, 9))
+    app.setFont(QFont(_FN, _FN_SIZE))
     _ico = os.path.join(_BASE_DIR, "icon.png")
     if os.path.exists(_ico):
         app.setWindowIcon(QIcon(_ico))

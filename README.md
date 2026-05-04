@@ -127,6 +127,20 @@ devtools://devtools/bundled/inspector.html?ws=127.0.0.1:62000
 
 ---
 
+## 服务号调试操作
+
+1. 打开一个小程序页面作为占位（保持不关闭）
+2. 访问需要调试的服务号内容（如 H5 网页）
+
+   ![PixPin_2026-05-04_22-48-42](https://s1.galgame.fun/imgb/u55/20260504_69f8b299a7d85.png)
+
+3. 在工具栏「服务」目标列表中找到目标网页，双击后切换至调试视图即可开始调试
+
+   ![PixPin_2026-05-04_22-51-14](https://s1.galgame.fun/imgb/u55/20260504_69f8b299a7d94.png)
+   ![PixPin_2026-05-04_22-51-39](https://s1.galgame.fun/imgb/u55/20260504_69f8b299a804b.png)
+
+---
+
 ## macOS 注意事项
 
 如果 Frida 注入报错，需要解除系统对进程附加的限制，任选其一：
